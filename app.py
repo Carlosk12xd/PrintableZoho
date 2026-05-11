@@ -1,24 +1,19 @@
 from __future__ import annotations
 
+import base64
 import io
-from typing import List
+import zipfile
+from typing import Dict, List
 
 import pandas as pd
 import streamlit as st
 
-from report_builder import (
-    ReportData,
-    build_html_report,
-    build_pdf_report,
-    normalize_dataframe,
-    safe_filename,
-)
-from scraper import ScrapeOptions, scrape_zoho_candidate_ids
-from zoho_api import ZohoApiConfig, export_dashboard_as_pdf, export_view_as_csv
+from corporate_pdf import PdfVisual, build_corporate_pdf
+from zoho_capture import CaptureOptions, VisualCapture, capture_visuals_from_url
 
 
 st.set_page_config(
-    page_title="Zoho Analytics Report Builder",
+    page_title="Zoho Corporate Report Builder",
     page_icon="📊",
     layout="wide",
 )
@@ -32,48 +27,68 @@ st.markdown(
         padding-bottom: 3rem;
         max-width: 1500px;
       }
+
       .hero-card {
         padding: 2rem;
-        border-radius: 24px;
-        background: linear-gradient(135deg, #eff6ff 0%, #ffffff 48%, #f8fafc 100%);
+        border-radius: 26px;
+        background: linear-gradient(135deg, #eff6ff 0%, #ffffff 45%, #f8fafc 100%);
         border: 1px solid #dbeafe;
         box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
-        margin-bottom: 1.3rem;
+        margin-bottom: 1.25rem;
       }
+
       .hero-card h1 {
         margin: 0;
-        font-size: 2.4rem;
-        letter-spacing: -0.04em;
+        font-size: 2.5rem;
+        letter-spacing: -0.05em;
+        color: #0f172a;
       }
+
       .hero-card p {
         color: #475467;
-        font-size: 1.03rem;
-        max-width: 980px;
-        line-height: 1.6;
+        font-size: 1.05rem;
+        max-width: 1000px;
+        line-height: 1.62;
       }
+
+      .visual-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 20px;
+        background: #ffffff;
+        padding: 1rem;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+        margin-bottom: 1rem;
+      }
+
       .small-muted {
         color: #667085;
         font-size: 0.9rem;
       }
-      .report-section {
-        border: 1px solid #e5e7eb;
-        border-radius: 20px;
-        padding: 1.1rem 1.2rem;
-        background: #ffffff;
-        margin-bottom: 1rem;
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+
+      .step-badge {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.25rem 0.7rem;
+        background: #dbeafe;
+        color: #1e40af;
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
       }
+
       @media print {
         header, footer, [data-testid="stSidebar"], [data-testid="stToolbar"],
         [data-testid="stDecoration"], [data-testid="stStatusWidget"], .stButton,
         .stDownloadButton, .stTabs, .stExpander, .stAlert {
           display: none !important;
         }
+
         .main .block-container {
           max-width: 100% !important;
           padding: 0 !important;
         }
-        .report-section {
+
+        .visual-card {
           page-break-inside: avoid;
           break-inside: avoid;
           box-shadow: none !important;
@@ -86,51 +101,89 @@ st.markdown(
 )
 
 
-def get_api_config() -> ZohoApiConfig:
-    return ZohoApiConfig(
-        server_uri=st.session_state.get("server_uri", "").strip(),
-        org_id=st.session_state.get("org_id", "").strip(),
-        workspace_id=st.session_state.get("workspace_id", "").strip(),
-        access_token=st.session_state.get("access_token", "").strip(),
-    )
+def get_links_from_text(text: str) -> List[str]:
+    links = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        links.append(line)
+    return links
 
 
-def missing_api_fields(config: ZohoApiConfig) -> List[str]:
-    missing = []
-    if not config.server_uri:
-        missing.append("Zoho Analytics API server URI")
-    if not config.org_id:
-        missing.append("Organization ID")
-    if not config.workspace_id:
-        missing.append("Workspace ID")
-    if not config.access_token:
-        missing.append("OAuth access token")
-    return missing
+def visual_metadata_dataframe(visuals: List[VisualCapture]) -> pd.DataFrame:
+    rows = []
+    for index, visual in enumerate(visuals, start=1):
+        rows.append(
+            {
+                "selected": True,
+                "order": index,
+                "visual_id": visual.visual_id,
+                "title": visual.title,
+                "kind": visual.kind,
+                "source_url": visual.source_url,
+                "width": visual.width,
+                "height": visual.height,
+                "confidence_score": visual.confidence_score,
+                "notes": "",
+            }
+        )
+    return pd.DataFrame(rows)
 
 
-def dataframe_to_excel_bytes(dfs: dict[str, pd.DataFrame]) -> bytes:
+def create_images_zip(visuals: List[VisualCapture], selected_ids: List[str]) -> bytes:
+    selected_set = set(selected_ids)
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        for name, df in dfs.items():
-            sheet_name = safe_filename(name, "Sheet")[:31]
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
+
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
+        for visual in visuals:
+            if visual.visual_id not in selected_set:
+                continue
+            safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in visual.title)[:60]
+            filename = f"{visual.visual_index:02d}_{safe_title or visual.visual_id}.png"
+            z.writestr(filename, visual.image_bytes)
+
     output.seek(0)
     return output.getvalue()
 
 
-# Sidebar
+def image_download_link(image_bytes: bytes, filename: str) -> str:
+    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    return f'<a href="data:image/png;base64,{encoded}" download="{filename}">Download PNG</a>'
 
-st.sidebar.header("Zoho API Credentials")
-st.sidebar.text_input("Zoho Analytics API server URI", value="analyticsapi.zoho.com", key="server_uri")
-st.sidebar.text_input("Organization ID", value="", key="org_id")
-st.sidebar.text_input("Workspace ID", value="", key="workspace_id")
-st.sidebar.text_input("OAuth access token", value="", type="password", key="access_token")
+
+# Sidebar settings
+
+st.sidebar.header("Corporate PDF Settings")
+report_title = st.sidebar.text_input("Report title", value="Zoho Analytics Corporate Report")
+client_name = st.sidebar.text_input("Client / corporation name", value="")
+company_name = st.sidebar.text_input("Your company / department", value="")
+prepared_by = st.sidebar.text_input("Prepared by", value="")
+paper = st.sidebar.selectbox("Paper size", ["Letter", "A4"], index=0)
+orientation = st.sidebar.selectbox("Orientation", ["Landscape", "Portrait"], index=0)
+layout = st.sidebar.selectbox("PDF layout", ["One visual per page", "Two visuals per page"], index=0)
+include_source_links = st.sidebar.checkbox("Include source links in PDF", value=True)
+
+logo_file = st.sidebar.file_uploader("Optional logo", type=["png", "jpg", "jpeg"])
+logo_bytes = logo_file.read() if logo_file is not None else None
+
+executive_summary = st.sidebar.text_area(
+    "Executive summary / cover notes",
+    value="",
+    height=120,
+    placeholder="Optional summary that appears on the PDF cover page.",
+)
 
 st.sidebar.markdown("---")
-st.sidebar.header("Report Output")
-report_title = st.sidebar.text_input("Report title", value="Zoho Analytics Printable Report")
-paper = st.sidebar.selectbox("PDF paper size", ["Letter", "A4"], index=0)
-orientation = st.sidebar.selectbox("PDF orientation", ["Landscape", "Portrait"], index=0)
+st.sidebar.header("Capture Settings")
+wait_seconds = st.sidebar.slider("Wait after page load", 2, 25, 7)
+timeout_seconds = st.sidebar.slider("Page timeout", 30, 180, 90)
+max_visuals_per_link = st.sidebar.slider("Max visuals per link", 3, 60, 24)
+min_width = st.sidebar.slider("Minimum visual width", 120, 600, 220)
+min_height = st.sidebar.slider("Minimum visual height", 80, 400, 120)
+include_full_page_fallback = st.sidebar.checkbox("Use full-page fallback", value=True)
+full_page_if_less_than = st.sidebar.slider("Fallback if fewer visuals than", 0, 5, 1)
+crop_whitespace = st.sidebar.checkbox("Try to crop whitespace", value=False)
 
 
 # Header
@@ -138,341 +191,264 @@ orientation = st.sidebar.selectbox("PDF orientation", ["Landscape", "Portrait"],
 st.markdown(
     """
     <div class="hero-card">
-      <h1>Zoho Analytics Report Builder</h1>
+      <div class="step-badge">Zoho Analytics → Corporate PDF</div>
+      <h1>Build client-ready reports from Zoho Analytics links</h1>
       <p>
-        Paste a Zoho Analytics open-view page, scrape candidate chart/report/view IDs,
-        export selected IDs through the Zoho API, and rebuild a clean printable report
-        with separate sections.
+        Paste public or authorized Zoho Analytics links. The app renders each page,
+        captures charts, tables, KPI cards, and dashboard widgets as images,
+        then compiles them into a polished PDF you can present to corporations.
       </p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.warning(
-    "The scraper finds candidate IDs from the rendered page. Some IDs may be internal dashboard/widget IDs, "
-    "not valid API view IDs. The app lets you select IDs and test them through the Zoho Analytics API."
+st.info(
+    "This version focuses on importing the graphics/visualizations exactly as they appear in Zoho. "
+    "It does not bypass Zoho permissions. If a link requires login, use a public/open-view link or add an authenticated capture workflow later."
 )
 
 
-# Tabs
-
-tab_scrape, tab_export, tab_upload, tab_native_pdf = st.tabs(
-    [
-        "1. Scrape chart/view IDs",
-        "2. Export selected IDs as report data",
-        "3. Upload exported data instead",
-        "4. Native Zoho dashboard PDF",
-    ]
+tab_capture, tab_review, tab_export, tab_help = st.tabs(
+    ["1. Capture Zoho visuals", "2. Review and organize", "3. Export corporate PDF", "How it works"]
 )
 
 
-with tab_scrape:
-    st.subheader("Scrape candidate IDs from Zoho Analytics")
+with tab_capture:
+    st.subheader("Paste Zoho Analytics links")
 
-    url = st.text_input(
-        "Zoho Analytics open-view URL",
-        value="https://analytics.zoho.com/open-view/3251149000000069172",
+    default_link = "https://analytics.zoho.com/open-view/3251149000000069172"
+    links_text = st.text_area(
+        "One Zoho Analytics link per line",
+        value=default_link,
+        height=140,
     )
 
-    col1, col2, col3, col4 = st.columns(4)
+    links = get_links_from_text(links_text)
+
+    col1, col2 = st.columns([1, 3])
     with col1:
-        wait_seconds = st.slider("Wait after page load", 1, 20, 5)
+        capture_clicked = st.button("Capture visualizations", type="primary", use_container_width=True)
     with col2:
-        timeout_seconds = st.slider("Page timeout", 15, 180, 60)
-    with col3:
-        scan_scripts = st.checkbox("Scan scripts", value=True)
-    with col4:
-        scan_iframes = st.checkbox("Scan iframes", value=True)
-
-    st.caption(
-        "Use a public/open Zoho Analytics link. For private reports, the official Zoho API path is more reliable than scraping."
-    )
-
-    if st.button("Scrape candidate IDs", type="primary"):
-        with st.spinner("Opening the Zoho page with Playwright and scanning DOM, iframes, scripts, and network URLs..."):
-            try:
-                df = scrape_zoho_candidate_ids(
-                    url,
-                    ScrapeOptions(
-                        wait_seconds=wait_seconds,
-                        timeout_ms=timeout_seconds * 1000,
-                        scan_scripts=scan_scripts,
-                        scan_iframes=scan_iframes,
-                    ),
-                )
-                st.session_state["candidate_ids"] = df
-                if df.empty:
-                    st.error("No candidate IDs were found.")
-                else:
-                    st.success(f"Found {len(df):,} unique candidate ID(s).")
-            except Exception as exc:
-                st.error(f"Scrape failed: {exc}")
-
-    candidate_df = st.session_state.get("candidate_ids")
-    if candidate_df is not None and not candidate_df.empty:
-        st.markdown("### Review scraped IDs")
-        st.write(
-            "Keep the IDs that look like actual Zoho report/view IDs. "
-            "High-confidence rows usually come from `open-view`, `viewId`, `/views/`, iframe sources, or network URLs."
+        st.caption(
+            "The app will render every link, scroll the page to trigger lazy-loaded charts, detect visual elements, "
+            "and screenshot each visualization/card/table it can find."
         )
 
+    if capture_clicked:
+        if not links:
+            st.error("Paste at least one Zoho Analytics link.")
+        else:
+            options = CaptureOptions(
+                wait_seconds=wait_seconds,
+                timeout_ms=timeout_seconds * 1000,
+                max_visuals_per_link=max_visuals_per_link,
+                min_width=min_width,
+                min_height=min_height,
+                include_full_page_fallback=include_full_page_fallback,
+                full_page_if_less_than=full_page_if_less_than,
+                crop_whitespace=crop_whitespace,
+            )
+
+            all_visuals: List[VisualCapture] = []
+            progress = st.progress(0)
+
+            for page_index, link in enumerate(links, start=1):
+                with st.spinner(f"Capturing visuals from link {page_index} of {len(links)}..."):
+                    try:
+                        captures = capture_visuals_from_url(
+                            link,
+                            page_index=page_index,
+                            options=options,
+                        )
+                        all_visuals.extend(captures)
+                        st.success(f"Captured {len(captures)} visual(s) from link {page_index}.")
+                    except Exception as exc:
+                        st.error(f"Could not capture link {page_index}: {exc}")
+
+                progress.progress(page_index / len(links))
+
+            if all_visuals:
+                st.session_state["visuals"] = all_visuals
+                st.session_state["visual_metadata"] = visual_metadata_dataframe(all_visuals)
+                st.success(f"Total captured visuals: {len(all_visuals)}")
+            else:
+                st.error("No visuals were captured. Try increasing wait time, enabling full-page fallback, or using a public/open Zoho link.")
+
+    visuals = st.session_state.get("visuals", [])
+    if visuals:
+        st.markdown("### Latest capture preview")
+        preview_cols = st.columns(3)
+        for idx, visual in enumerate(visuals[:6]):
+            with preview_cols[idx % 3]:
+                st.image(visual.image_bytes, caption=f"{visual.title} ({visual.kind})", use_container_width=True)
+
+
+with tab_review:
+    st.subheader("Review, rename, select, and reorder visuals")
+
+    visuals: List[VisualCapture] = st.session_state.get("visuals", [])
+    metadata = st.session_state.get("visual_metadata")
+
+    if not visuals or metadata is None:
+        st.warning("Capture visuals first.")
+    else:
         edited = st.data_editor(
-            candidate_df,
+            metadata,
             use_container_width=True,
-            height=520,
+            height=420,
             num_rows="fixed",
-            disabled=[
-                "candidate_id",
-                "candidate_kind",
-                "confidence_score",
-                "evidence_count",
-                "pattern",
-                "source_type",
-                "source_url",
-                "tag",
-                "attribute_name",
-                "nearby_heading",
-                "text",
-                "selector",
-                "attribute_value",
-            ],
-            key="candidate_editor",
+            column_config={
+                "selected": st.column_config.CheckboxColumn("Include"),
+                "order": st.column_config.NumberColumn("Order", min_value=1, step=1),
+                "title": st.column_config.TextColumn("PDF section title"),
+                "notes": st.column_config.TextColumn("Optional notes"),
+            },
+            disabled=["visual_id", "kind", "source_url", "width", "height", "confidence_score"],
+            key="visual_review_editor",
         )
 
-        st.session_state["candidate_ids"] = edited
+        st.session_state["visual_metadata"] = edited
 
-        selected = edited[edited["selected"] == True].copy()
-        st.info(f"{len(selected):,} ID(s) selected.")
+        selected_count = int((edited["selected"] == True).sum())
+        st.success(f"{selected_count} visual(s) selected for the PDF.")
 
-        st.download_button(
-            "Download scraped IDs CSV",
-            data=edited.to_csv(index=False).encode("utf-8"),
-            file_name="scraped_zoho_candidate_ids.csv",
-            mime="text/csv",
-        )
+        visual_map: Dict[str, VisualCapture] = {visual.visual_id: visual for visual in visuals}
+
+        st.markdown("### Visual preview")
+        for _, row in edited.sort_values("order").iterrows():
+            if not row.get("selected", True):
+                continue
+            visual = visual_map.get(row["visual_id"])
+            if not visual:
+                continue
+
+            st.markdown('<div class="visual-card">', unsafe_allow_html=True)
+            st.markdown(f"#### {int(row['order'])}. {row['title']}")
+            st.caption(f"{row['kind']} • {row['width']}×{row['height']} • score {row['confidence_score']}")
+            st.image(visual.image_bytes, use_container_width=True)
+            if row.get("notes"):
+                st.write(row["notes"])
+            st.markdown(
+                image_download_link(visual.image_bytes, f"{visual.visual_id}.png"),
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 with tab_export:
-    st.subheader("Export selected scraped IDs using the Zoho Analytics API")
+    st.subheader("Export corporate-ready files")
 
-    candidate_df = st.session_state.get("candidate_ids")
-    if candidate_df is None or candidate_df.empty:
-        st.warning("Scrape IDs first, or use the upload tab.")
+    visuals: List[VisualCapture] = st.session_state.get("visuals", [])
+    metadata = st.session_state.get("visual_metadata")
+
+    if not visuals or metadata is None:
+        st.warning("Capture and review visuals first.")
     else:
-        selected = candidate_df[candidate_df["selected"] == True].copy()
-        if selected.empty:
-            st.warning("No IDs selected. Go back to the scrape tab and select at least one candidate.")
+        visual_map: Dict[str, VisualCapture] = {visual.visual_id: visual for visual in visuals}
+        selected_rows = metadata[metadata["selected"] == True].sort_values("order")
+
+        if selected_rows.empty:
+            st.error("No visuals selected.")
         else:
-            st.write("Selected IDs:")
+            pdf_visuals: List[PdfVisual] = []
+
+            for _, row in selected_rows.iterrows():
+                visual = visual_map.get(row["visual_id"])
+                if not visual:
+                    continue
+
+                pdf_visuals.append(
+                    PdfVisual(
+                        title=str(row["title"]).strip() or visual.title,
+                        source_url=visual.source_url,
+                        kind=visual.kind,
+                        image_bytes=visual.image_bytes,
+                        notes=str(row.get("notes", "") or ""),
+                    )
+                )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("Generate corporate PDF", type="primary", use_container_width=True):
+                    try:
+                        pdf_bytes = build_corporate_pdf(
+                            visuals=pdf_visuals,
+                            report_title=report_title,
+                            client_name=client_name,
+                            company_name=company_name,
+                            prepared_by=prepared_by,
+                            executive_summary=executive_summary,
+                            logo_bytes=logo_bytes,
+                            paper=paper,
+                            orientation=orientation,
+                            layout=layout,
+                            include_source_links=include_source_links,
+                        )
+                        st.session_state["latest_pdf"] = pdf_bytes
+                        st.success("Corporate PDF generated.")
+                    except Exception as exc:
+                        st.error(f"PDF generation failed: {exc}")
+
+            with col2:
+                selected_ids = [row["visual_id"] for _, row in selected_rows.iterrows()]
+                images_zip = create_images_zip(visuals, selected_ids)
+                st.download_button(
+                    "Download selected visuals as PNG zip",
+                    data=images_zip,
+                    file_name="zoho_captured_visuals.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                )
+
+            latest_pdf = st.session_state.get("latest_pdf")
+            if latest_pdf:
+                st.download_button(
+                    "Download corporate PDF",
+                    data=latest_pdf,
+                    file_name="zoho_corporate_report.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            st.markdown("### Selected visuals going into PDF")
             st.dataframe(
-                selected[["candidate_id", "candidate_kind", "confidence_score", "pattern", "source_type"]],
+                selected_rows[["order", "title", "kind", "source_url", "width", "height", "confidence_score"]],
                 use_container_width=True,
             )
 
-            criteria = st.text_input(
-                "Optional Zoho criteria for all selected views",
-                value="",
-                help="Example: \"Date\" >= '2026-01-01'. Leave blank unless you know the Zoho criteria syntax you need.",
-            )
 
-            if st.button("Export selected IDs as data", type="primary"):
-                config = get_api_config()
-                missing = missing_api_fields(config)
-                if missing:
-                    st.error("Missing: " + ", ".join(missing))
-                else:
-                    reports: List[ReportData] = []
-                    progress = st.progress(0)
+with tab_help:
+    st.subheader("Recommended architecture for your goal")
 
-                    for index, (_, row) in enumerate(selected.iterrows(), start=1):
-                        view_id = str(row["candidate_id"]).strip()
-                        label = f"Zoho View {view_id}"
+    st.markdown(
+        """
+        Your stated goal is to turn Zoho Analytics links into a readable, corporate-ready PDF.
+        That means the app should focus on visual capture first.
 
-                        try:
-                            df = export_view_as_csv(
-                                config,
-                                view_id,
-                                criteria=criteria.strip() or None,
-                            )
-                            reports.append(
-                                ReportData(
-                                    name=label,
-                                    source=f"Zoho Analytics API view {view_id}",
-                                    dataframe=df,
-                                    notes=(
-                                        f"Candidate kind: {row.get('candidate_kind', '')}. "
-                                        f"Confidence score: {row.get('confidence_score', '')}. "
-                                        f"Evidence: {row.get('pattern', '')}."
-                                    ),
-                                )
-                            )
-                            st.success(f"Exported {label}: {len(df):,} rows")
-                        except Exception as exc:
-                            st.error(f"Could not export ID {view_id}: {exc}")
+        **Best flow:**
 
-                        progress.progress(index / max(1, len(selected)))
+        1. Render each Zoho Analytics link with Playwright.
+        2. Detect charts, tables, KPI cards, canvases, SVGs, and iframes.
+        3. Screenshot each visual element individually.
+        4. Let the user rename and organize the visuals.
+        5. Build a clean PDF with cover page, captions, source links, and one visual per page.
+        6. Add a fallback full-page screenshot when Zoho hides charts inside containers that are hard to isolate.
 
-                    if reports:
-                        st.session_state["reports"] = reports
-                        st.success(f"Loaded {len(reports):,} report section(s).")
+        **Why not only webscrape IDs?**
 
+        Scraped IDs are useful, but they do not guarantee access to the rendered visualization or raw data.
+        Zoho pages can include dashboard IDs, widget IDs, view IDs, internal component IDs, cache IDs, and workspace IDs.
+        Screenshots are more reliable for producing presentation-ready PDFs.
 
-with tab_upload:
-    st.subheader("Upload Zoho-exported CSV/XLSX files instead")
-    st.write(
-        "Use this path if the scraped IDs are not valid API view IDs yet. "
-        "Export each chart/table from Zoho as CSV/XLSX, upload them here, and this app will build the printable report."
+        **Future upgrade path:**
+
+        Add Zoho OAuth login and official API export. Then the app can combine:
+        - original Zoho graphics from screenshots
+        - raw data tables from API exports
+        - automatically generated summaries
+        - branded corporate PDF templates
+        """
     )
-
-    uploaded_files = st.file_uploader(
-        "Upload CSV, XLSX, or XLS files",
-        type=["csv", "xlsx", "xls"],
-        accept_multiple_files=True,
-    )
-
-    if uploaded_files:
-        reports: List[ReportData] = []
-        for uploaded in uploaded_files:
-            try:
-                if uploaded.name.lower().endswith(".csv"):
-                    df = pd.read_csv(uploaded)
-                else:
-                    df = pd.read_excel(uploaded)
-
-                df = normalize_dataframe(df)
-                reports.append(
-                    ReportData(
-                        name=uploaded.name.rsplit(".", 1)[0],
-                        source=uploaded.name,
-                        dataframe=df,
-                        notes="Uploaded Zoho export file.",
-                    )
-                )
-            except Exception as exc:
-                st.error(f"Could not read {uploaded.name}: {exc}")
-
-        if reports:
-            st.session_state["reports"] = reports
-            st.success(f"Loaded {len(reports):,} uploaded report section(s).")
-
-
-with tab_native_pdf:
-    st.subheader("Ask Zoho to export the whole dashboard as a native PDF")
-    st.write(
-        "This does not rebuild the data section-by-section. It uses Zoho's own PDF export endpoint for a dashboard/view ID."
-    )
-
-    dashboard_id = st.text_input(
-        "Dashboard/open-view ID",
-        value="3251149000000069172",
-        help="Paste only the numeric ID, or copy it from the open-view URL.",
-    )
-    each_report_new_page = st.checkbox("Each report in a new page", value=True)
-
-    if st.button("Export native Zoho dashboard PDF"):
-        config = get_api_config()
-        missing = missing_api_fields(config)
-        if missing:
-            st.error("Missing: " + ", ".join(missing))
-        else:
-            try:
-                pdf_bytes = export_dashboard_as_pdf(
-                    config,
-                    dashboard_id,
-                    each_report_new_page=each_report_new_page,
-                )
-                st.download_button(
-                    "Download Zoho native PDF",
-                    data=pdf_bytes,
-                    file_name="zoho_native_dashboard_export.pdf",
-                    mime="application/pdf",
-                    type="primary",
-                )
-            except Exception as exc:
-                st.error(f"Native Zoho PDF export failed: {exc}")
-
-
-# Report preview and downloads
-
-st.markdown("---")
-st.header("Printable Report Preview")
-
-reports = st.session_state.get("reports", [])
-
-if not reports:
-    st.info("Export selected IDs through the API or upload CSV/XLSX files to generate the report.")
-else:
-    st.success(f"{len(reports):,} report section(s) ready.")
-
-    all_dfs = {}
-    for idx, report in enumerate(reports, start=1):
-        st.markdown('<div class="report-section">', unsafe_allow_html=True)
-        st.subheader(f"{idx}. {report.name}")
-        st.caption(report.source)
-        if report.notes:
-            st.write(report.notes)
-
-        summary = {
-            "Rows": f"{len(report.dataframe):,}",
-            "Columns": f"{len(report.dataframe.columns):,}",
-        }
-        metric_cols = st.columns(len(summary))
-        for col, (key, value) in zip(metric_cols, summary.items()):
-            col.metric(key, value)
-
-        st.dataframe(report.dataframe, use_container_width=True, height=360)
-        all_dfs[report.name] = report.dataframe
-
-        st.download_button(
-            f"Download {report.name} CSV",
-            data=report.dataframe.to_csv(index=False).encode("utf-8"),
-            file_name=f"{safe_filename(report.name)}.csv",
-            mime="text/csv",
-            key=f"download_section_csv_{idx}",
-        )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    html_report = build_html_report(reports, report_title)
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.download_button(
-            "Download printable HTML report",
-            data=html_report.encode("utf-8"),
-            file_name="zoho_printable_report.html",
-            mime="text/html",
-            type="primary",
-        )
-
-    with col2:
-        try:
-            pdf_report = build_pdf_report(
-                reports,
-                report_title,
-                paper=paper,
-                orientation=orientation,
-            )
-            st.download_button(
-                "Download PDF report",
-                data=pdf_report,
-                file_name="zoho_printable_report.pdf",
-                mime="application/pdf",
-                type="primary",
-            )
-        except Exception as exc:
-            st.error(f"PDF generation failed: {exc}")
-
-    with col3:
-        excel_bytes = dataframe_to_excel_bytes(all_dfs)
-        st.download_button(
-            "Download all data as Excel",
-            data=excel_bytes,
-            file_name="zoho_report_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    with st.expander("Generated printable HTML"):
-        st.code(html_report, language="html")

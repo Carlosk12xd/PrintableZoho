@@ -1,48 +1,48 @@
-# Zoho Analytics Report Builder
+# Zoho Corporate Report Builder
 
-A Streamlit web app that:
+A Streamlit app for turning Zoho Analytics report/dashboard links into a polished corporate PDF.
 
-1. Opens a public Zoho Analytics `open-view` page with Playwright.
-2. Scrapes candidate chart/report/view IDs from the rendered DOM, iframes, scripts, and network URLs.
-3. Lets you review/select the IDs.
-4. Uses the official Zoho Analytics API to export selected views as CSV data.
-5. Rebuilds the data into a clean printable report with sections, KPIs, charts, tables, HTML export, and PDF export.
+## What it does
 
-## Important limitation
+1. Paste one or more Zoho Analytics links.
+2. The app opens each link in a headless browser using Playwright.
+3. It searches the rendered page for visual elements:
+   - charts
+   - canvases
+   - SVG visualizations
+   - tables
+   - KPI cards
+   - report/dashboard widgets
+   - iframes
+4. It screenshots each visualization individually when possible.
+5. If individual visuals cannot be detected, it falls back to a full-page screenshot.
+6. It lets you review, rename, reorder, and select visuals.
+7. It exports a polished corporate PDF with:
+   - cover page
+   - optional company/client names
+   - optional uploaded logo
+   - one visualization per page, or two per page
+   - captions and source links
+   - professional formatting
 
-The scraper can detect **candidate IDs**, but a dashboard page may contain many IDs:
+## Why screenshots instead of directly reading chart data?
 
-- dashboard IDs
-- view/report IDs
-- chart/widget IDs
-- internal Zoho component IDs
-- request/session/cache IDs
+Zoho Analytics dashboards often render charts inside complex JavaScript, canvas, SVG, and iframe structures. Public `open-view` links usually expose the visual output, but not always the raw data behind each chart.
 
-Not every scraped ID is guaranteed to be a valid Zoho Analytics API `view_id`.
+For a client-ready report, the most reliable general approach is:
 
-The app handles this by letting you review the candidates first, then test/export selected IDs with the Zoho API.
+- render the page
+- capture each visualization as an image
+- compile those images into a clean PDF
 
-## Files
-
-```txt
-app.py
-scraper.py
-zoho_api.py
-report_builder.py
-requirements.txt
-packages.txt
-runtime.txt
-.streamlit/config.toml
-.gitignore
-README.md
-```
+If you later want raw data export, add Zoho Analytics API credentials and view IDs.
 
 ## Local setup
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate       # Mac/Linux
-# .venv\Scripts\activate        # Windows
+source .venv/bin/activate        # Mac/Linux
+# .venv\Scripts\activate         # Windows
 
 pip install -r requirements.txt
 python -m playwright install chromium
@@ -51,31 +51,32 @@ streamlit run app.py
 
 ## Streamlit Cloud setup
 
-1. Push these files to GitHub.
-2. Deploy the repo on Streamlit Community Cloud.
-3. The app attempts to install Chromium automatically on first run if Playwright cannot find it.
-4. If Chromium launch fails, check `packages.txt` and redeploy.
+1. Push all files to GitHub.
+2. Deploy the repo in Streamlit Community Cloud.
+3. The app tries to install Playwright Chromium automatically on first use.
+4. If Chromium fails to launch, redeploy after confirming `packages.txt` is included.
 
-## Zoho API info needed
+## Files
 
-To export selected views as actual data, enter these in the app sidebar:
+```txt
+app.py
+zoho_capture.py
+corporate_pdf.py
+requirements.txt
+packages.txt
+runtime.txt
+.streamlit/config.toml
+README.md
+.gitignore
+```
 
-- Zoho Analytics API server URI, for example `analyticsapi.zoho.com`
-- Organization ID
-- Workspace ID
-- OAuth access token with `ZohoAnalytics.data.read`
-- Selected scraped view IDs
+## Recommended usage
 
-## How to use
+Use public or authorized Zoho Analytics links that are already formatted well on screen.
 
-1. Paste the Zoho public `open-view` URL.
-2. Click **Scrape candidate IDs**.
-3. Review the table.
-4. Keep the IDs that look like report/view IDs.
-5. Add Zoho API credentials in the sidebar.
-6. Click **Export selected IDs as data**.
-7. Download the printable HTML or PDF report.
+For best PDF results:
 
-## Notes
-
-This app is designed for reports/pages you own or are authorized to access. It does not bypass Zoho access controls.
+- Use dashboard/report links that do not require manual login.
+- Keep one dashboard page reasonably clean.
+- Use landscape PDF format for wide charts.
+- Use "one visual per page" for executive/corporate decks.
