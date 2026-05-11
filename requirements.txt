@@ -1,0 +1,7 @@
+streamlit
+pandas
+requests
+playwright
+openpyxl
+matplotlib
+reportlab
