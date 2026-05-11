@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zoho Report Printer</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --border: #d9e2ef;
+      --accent: #2563eb;
+      --accent-dark: #1d4ed8;
+      --shadow: 0 18px 50px rgba(23, 32, 51, 0.12);
+      --radius: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.16), transparent 28rem),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      min-height: 100vh;
+    }
+
+    .app-shell {
+      width: min(1440px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 24px;
+      align-items: stretch;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(217, 226, 239, 0.85);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .intro {
+      padding: 30px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #eaf1ff;
+      color: #1e40af;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(32px, 4vw, 54px);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+    }
+
+    .intro p {
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+      max-width: 760px;
+      margin: 18px 0 0;
+    }
+
+    .tips {
+      padding: 24px;
+    }
+
+    .tips h2 {
+      font-size: 18px;
+      margin: 0 0 14px;
+    }
+
+    .tips ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    .controls {
+      padding: 22px;
+      margin-bottom: 22px;
+    }
+
+    .url-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 800;
+      color: #344054;
+      margin-bottom: 7px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: #ffffff;
+      color: var(--text);
+      min-height: 46px;
+      padding: 11px 13px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: rgba(37, 99, 235, 0.65);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.13);
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(140px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button,
+    .link-button {
+      appearance: none;
+      border: 0;
+      border-radius: 13px;
+      min-height: 46px;
+      padding: 0 16px;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+
+    button:hover,
+    .link-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 10px 22px rgba(37, 99, 235, 0.25);
+    }
+
+    .primary:hover {
+      background: var(--accent-dark);
+    }
+
+    .secondary {
+      background: #eef4ff;
+      color: #1e40af;
+    }
+
+    .ghost {
+      background: #f2f4f7;
+      color: #344054;
+    }
+
+    .status {
+      margin-top: 14px;
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status.error {
+      color: #b42318;
+      font-weight: 700;
+    }
+
+    .viewer-card {
+      overflow: hidden;
+    }
+
+    .viewer-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      background: #ffffff;
+    }
+
+    .viewer-header strong {
+      font-size: 15px;
+    }
+
+    .viewer-header span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .report-frame-wrap {
+      background: #ffffff;
+      padding: 18px;
+    }
+
+    iframe {
+      display: block;
+      width: 100%;
+      height: 900px;
+      border: 1px solid #e4e7ec;
+      border-radius: 12px;
+      background: #ffffff;
+    }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      margin-top: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .url-row {
+        grid-template-columns: 1fr;
+      }
+
+      .options-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 560px) {
+      .app-shell {
+        width: min(100% - 18px, 1440px);
+        padding-top: 12px;
+      }
+
+      .intro,
+      .controls,
+      .tips {
+        padding: 18px;
+      }
+
+      .options-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .button-row button,
+      .button-row .link-button {
+        width: 100%;
+      }
+    }
+
+    @media print {
+      body {
+        background: #ffffff !important;
+      }
+
+      .hero,
+      .controls,
+      .viewer-header,
+      .footer-note {
+        display: none !important;
+      }
+
+      .app-shell {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      .card,
+      .viewer-card {
+        border: 0;
+        box-shadow: none;
+        border-radius: 0;
+      }
+
+      .report-frame-wrap {
+        padding: 0;
+      }
+
+      iframe {
+        border: 0;
+        border-radius: 0;
+        width: 100%;
+        height: 100vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero">
+      <div class="intro card">
+        <div class="eyebrow">Zoho Analytics Report Printer</div>
+        <h1>Paste a Zoho report link. Print it cleanly.</h1>
+        <p>
+          Turn public Zoho Analytics report links into a focused printable page. Use the print button and choose
+          <strong>Save as PDF</strong> in your browser to create a PDF copy.
+        </p>
+      </div>
+
+      <aside class="tips card">
+        <h2>Best results</h2>
+        <ul>
+          <li>Use a public Zoho <code>open-view</code> link or a link you can access while signed in.</li>
+          <li>For wide reports, choose Landscape before printing.</li>
+          <li>Use your browser print dialog to save the report as a PDF.</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="controls card" aria-label="Report controls">
+      <div class="url-row">
+        <div>
+          <label for="reportUrl">Zoho Analytics report URL</label>
+          <input
+            id="reportUrl"
+            type="url"
+            value="https://analytics.zoho.com/open-view/3251149000000069172"
+            placeholder="https://analytics.zoho.com/open-view/..."
+          />
+        </div>
+        <button class="primary" id="loadBtn" type="button">Load Report</button>
+      </div>
+
+      <div class="options-grid">
+        <div>
+          <label for="paperSize">Paper size</label>
+          <select id="paperSize">
+            <option value="letter" selected>Letter</option>
+            <option value="a4">A4</option>
+          </select>
+        </div>
+        <div>
+          <label for="orientation">Orientation</label>
+          <select id="orientation">
+            <option value="landscape" selected>Landscape</option>
+            <option value="portrait">Portrait</option>
+          </select>
+        </div>
+        <div>
+          <label for="marginSize">Margins</label>
+          <select id="marginSize">
+            <option value="0.25in" selected>Small</option>
+            <option value="0.5in">Normal</option>
+            <option value="0in">None</option>
+          </select>
+        </div>
+        <div>
+          <label for="frameHeight">Preview height</label>
+          <select id="frameHeight">
+            <option value="700">Short</option>
+            <option value="900" selected>Standard</option>
+            <option value="1200">Tall</option>
+            <option value="1600">Extra tall</option>
+          </select>
+        </div>
+        <div>
+          <label for="zoomLevel">Print zoom</label>
+          <select id="zoomLevel">
+            <option value="1" selected>100%</option>
+            <option value="0.9">90%</option>
+            <option value="0.8">80%</option>
+            <option value="0.7">70%</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button class="primary" id="printBtn" type="button">Print / Save PDF</button>
+        <a class="link-button secondary" id="openBtn" href="https://analytics.zoho.com/open-view/3251149000000069172" target="_blank" rel="noopener noreferrer">Open Original</a>
+        <button class="secondary" id="copyBtn" type="button">Copy Embed Code</button>
+        <button class="ghost" id="resetBtn" type="button">Reset</button>
+      </div>
+
+      <div class="status" id="status">Ready.</div>
+    </section>
+
+    <section class="viewer-card card" id="printArea" aria-label="Report preview">
+      <div class="viewer-header">
+        <div>
+          <strong>Live preview</strong><br />
+          <span>The printed/PDF version will hide the controls and keep only this report.</span>
+        </div>
+        <span id="loadedUrlLabel">Default report loaded</span>
+      </div>
+      <div class="report-frame-wrap">
+        <iframe
+          id="reportFrame"
+          src="https://analytics.zoho.com/open-view/3251149000000069172"
+          title="Zoho Analytics report preview"
+          loading="lazy"
+        ></iframe>
+      </div>
+    </section>
+
+    <p class="footer-note">
+      Note: Browsers do not reliably let a static website generate a true PDF file directly from another website inside an iframe.
+      This page uses the reliable path: print the page and choose Save as PDF. For a real one-click PDF download, you would need
+      a small backend service using a headless browser.
+    </p>
+  </main>
+
+  <script>
+    const DEFAULT_URL = "https://analytics.zoho.com/open-view/3251149000000069172";
+
+    const reportUrl = document.getElementById("reportUrl");
+    const reportFrame = document.getElementById("reportFrame");
+    const loadBtn = document.getElementById("loadBtn");
+    const printBtn = document.getElementById("printBtn");
+    const openBtn = document.getElementById("openBtn");
+    const copyBtn = document.getElementById("copyBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const statusEl = document.getElementById("status");
+    const loadedUrlLabel = document.getElementById("loadedUrlLabel");
+    const paperSize = document.getElementById("paperSize");
+    const orientation = document.getElementById("orientation");
+    const marginSize = document.getElementById("marginSize");
+    const frameHeight = document.getElementById("frameHeight");
+    const zoomLevel = document.getElementById("zoomLevel");
+
+    let pageStyleTag = null;
+
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.classList.toggle("error", isError);
+    }
+
+    function normalizeUrl(rawUrl) {
+      const trimmed = rawUrl.trim();
+      if (!trimmed) throw new Error("Paste a Zoho Analytics URL first.");
+
+      let url;
+      try {
+        url = new URL(trimmed);
+      } catch {
+        throw new Error("That does not look like a valid URL.");
+      }
+
+      if (url.protocol !== "https:") {
+        throw new Error("Use the secure https:// Zoho link.");
+      }
+
+      const allowedHosts = ["analytics.zoho.com", "analytics.zoho.eu", "analytics.zoho.in", "analytics.zoho.com.au", "analytics.zoho.jp", "analytics.zoho.ca"];
+      if (!allowedHosts.includes(url.hostname)) {
+        throw new Error("This tool is limited to Zoho Analytics links.");
+      }
+
+      return url.toString();
+    }
+
+    function updatePagePrintStyle() {
+      const size = paperSize.value.toUpperCase();
+      const orient = orientation.value;
+      const margin = marginSize.value;
+      const zoom = Number(zoomLevel.value);
+
+      if (pageStyleTag) pageStyleTag.remove();
+      pageStyleTag = document.createElement("style");
+      pageStyleTag.textContent = `
+        @page { size: ${size} ${orient}; margin: ${margin}; }
+        @media print {
+          .report-frame-wrap {
+            transform: scale(${zoom});
+            transform-origin: top left;
+            width: ${100 / zoom}%;
+          }
+        }
+      `;
+      document.head.appendChild(pageStyleTag);
+    }
+
+    function loadReport() {
+      try {
+        const cleanUrl = normalizeUrl(reportUrl.value);
+        reportFrame.src = cleanUrl;
+        openBtn.href = cleanUrl;
+        loadedUrlLabel.textContent = cleanUrl.replace(/^https:\/\//, "");
+        setStatus("Report loaded. Use Print / Save PDF when the preview finishes loading.");
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function applyPreviewHeight() {
+      reportFrame.style.height = `${frameHeight.value}px`;
+    }
+
+    async function copyEmbedCode() {
+      try {
+        const cleanUrl = normalizeUrl(reportUrl.value);
+        const code = `<iframe src="${cleanUrl}" width="100%" height="900" frameborder="0" title="Zoho Analytics report"></iframe>`;
+        await navigator.clipboard.writeText(code);
+        setStatus("Embed code copied.");
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function printReport() {
+      try {
+        normalizeUrl(reportUrl.value);
+        updatePagePrintStyle();
+        setStatus("Opening print dialog. Choose Save as PDF to export a PDF.");
+        window.print();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    loadBtn.addEventListener("click", loadReport);
+    printBtn.addEventListener("click", printReport);
+    copyBtn.addEventListener("click", copyEmbedCode);
+    frameHeight.addEventListener("change", applyPreviewHeight);
+    paperSize.addEventListener("change", updatePagePrintStyle);
+    orientation.addEventListener("change", updatePagePrintStyle);
+    marginSize.addEventListener("change", updatePagePrintStyle);
+    zoomLevel.addEventListener("change", updatePagePrintStyle);
+
+    resetBtn.addEventListener("click", () => {
+      reportUrl.value = DEFAULT_URL;
+      paperSize.value = "letter";
+      orientation.value = "landscape";
+      marginSize.value = "0.25in";
+      frameHeight.value = "900";
+      zoomLevel.value = "1";
+      applyPreviewHeight();
+      updatePagePrintStyle();
+      loadReport();
+      setStatus("Reset to the default report.");
+    });
+
+    reportUrl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") loadReport();
+    });
+
+    applyPreviewHeight();
+    updatePagePrintStyle();
+  </script>
+</body>
+</html>
