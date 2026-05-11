@@ -13,6 +13,12 @@
       --border: #d9e2ef;
       --accent: #2563eb;
       --accent-dark: #1d4ed8;
+      --warning-bg: #fff7ed;
+      --warning-border: #fed7aa;
+      --warning-text: #9a3412;
+      --success-bg: #ecfdf3;
+      --success-border: #bbf7d0;
+      --success-text: #166534;
       --shadow: 0 18px 50px rgba(23, 32, 51, 0.12);
       --radius: 18px;
     }
@@ -210,6 +216,31 @@
       font-weight: 700;
     }
 
+    .notice {
+      border-radius: 14px;
+      padding: 13px 14px;
+      margin-top: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .notice strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .notice.warning {
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: var(--warning-text);
+    }
+
+    .notice.success {
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: var(--success-text);
+    }
+
     .viewer-card {
       overflow: hidden;
     }
@@ -323,7 +354,7 @@
         border: 0;
         border-radius: 0;
         width: 100%;
-        height: 100vh;
+        height: var(--print-frame-height, 1600px) !important;
       }
     }
   </style>
@@ -335,17 +366,16 @@
         <div class="eyebrow">Zoho Analytics Report Printer</div>
         <h1>Paste a Zoho report link. Print it cleanly.</h1>
         <p>
-          Turn public Zoho Analytics report links into a focused printable page. Use the print button and choose
-          <strong>Save as PDF</strong> in your browser to create a PDF copy.
+          Turn public Zoho Analytics report links into a focused printable page. The main print button now opens the original Zoho report first, which avoids the iframe clipping problem that cuts charts in half.
         </p>
       </div>
 
       <aside class="tips card">
         <h2>Best results</h2>
         <ul>
-          <li>Use a public Zoho <code>open-view</code> link or a link you can access while signed in.</li>
-          <li>For wide reports, choose Landscape before printing.</li>
-          <li>Use your browser print dialog to save the report as a PDF.</li>
+          <li>Use <strong>Print Original / Save PDF</strong> for full reports with multiple graphs.</li>
+          <li>Choose Landscape in the browser print dialog for wide dashboards.</li>
+          <li>Use <strong>Print Preview Area</strong> only when you need to print exactly what is visible in this page.</li>
         </ul>
       </aside>
     </section>
@@ -388,16 +418,17 @@
           </select>
         </div>
         <div>
-          <label for="frameHeight">Preview height</label>
+          <label for="frameHeight">Preview / fallback height</label>
           <select id="frameHeight">
-            <option value="700">Short</option>
-            <option value="900" selected>Standard</option>
-            <option value="1200">Tall</option>
-            <option value="1600">Extra tall</option>
+            <option value="900">Standard</option>
+            <option value="1400">Tall</option>
+            <option value="2000" selected>Long report</option>
+            <option value="3000">Extra long</option>
+            <option value="4500">Huge dashboard</option>
           </select>
         </div>
         <div>
-          <label for="zoomLevel">Print zoom</label>
+          <label for="zoomLevel">Fallback zoom</label>
           <select id="zoomLevel">
             <option value="1" selected>100%</option>
             <option value="0.9">90%</option>
@@ -408,10 +439,21 @@
       </div>
 
       <div class="button-row">
-        <button class="primary" id="printBtn" type="button">Print / Save PDF</button>
+        <button class="primary" id="printOriginalBtn" type="button">Print Original / Save PDF</button>
+        <button class="secondary" id="printPreviewBtn" type="button">Print Preview Area</button>
         <a class="link-button secondary" id="openBtn" href="https://analytics.zoho.com/open-view/3251149000000069172" target="_blank" rel="noopener noreferrer">Open Original</a>
         <button class="secondary" id="copyBtn" type="button">Copy Embed Code</button>
         <button class="ghost" id="resetBtn" type="button">Reset</button>
+      </div>
+
+      <div class="notice success">
+        <strong>Fixed print behavior</strong>
+        The primary print button no longer prints the embedded iframe from this page. It opens the Zoho report itself and triggers the browser print dialog there, which prevents the dashboard from being clipped halfway through.
+      </div>
+
+      <div class="notice warning">
+        <strong>Why this matters</strong>
+        Browsers often print iframes as one big object instead of splitting them cleanly across pages. That is why charts were being cut off. Printing the original Zoho page is the reliable static-site workaround.
       </div>
 
       <div class="status" id="status">Ready.</div>
@@ -421,7 +463,7 @@
       <div class="viewer-header">
         <div>
           <strong>Live preview</strong><br />
-          <span>The printed/PDF version will hide the controls and keep only this report.</span>
+          <span>This is for previewing the report. For PDF export, use Print Original / Save PDF.</span>
         </div>
         <span id="loadedUrlLabel">Default report loaded</span>
       </div>
@@ -436,9 +478,7 @@
     </section>
 
     <p class="footer-note">
-      Note: Browsers do not reliably let a static website generate a true PDF file directly from another website inside an iframe.
-      This page uses the reliable path: print the page and choose Save as PDF. For a real one-click PDF download, you would need
-      a small backend service using a headless browser.
+      Static websites cannot directly read or screenshot the inside of a Zoho iframe because of browser security rules. This version avoids the clipping bug by sending the user to the original Zoho report for printing/PDF export, while still keeping the live preview and fallback print option.
     </p>
   </main>
 
@@ -448,7 +488,8 @@
     const reportUrl = document.getElementById("reportUrl");
     const reportFrame = document.getElementById("reportFrame");
     const loadBtn = document.getElementById("loadBtn");
-    const printBtn = document.getElementById("printBtn");
+    const printOriginalBtn = document.getElementById("printOriginalBtn");
+    const printPreviewBtn = document.getElementById("printPreviewBtn");
     const openBtn = document.getElementById("openBtn");
     const copyBtn = document.getElementById("copyBtn");
     const resetBtn = document.getElementById("resetBtn");
@@ -482,7 +523,15 @@
         throw new Error("Use the secure https:// Zoho link.");
       }
 
-      const allowedHosts = ["analytics.zoho.com", "analytics.zoho.eu", "analytics.zoho.in", "analytics.zoho.com.au", "analytics.zoho.jp", "analytics.zoho.ca"];
+      const allowedHosts = [
+        "analytics.zoho.com",
+        "analytics.zoho.eu",
+        "analytics.zoho.in",
+        "analytics.zoho.com.au",
+        "analytics.zoho.jp",
+        "analytics.zoho.ca"
+      ];
+
       if (!allowedHosts.includes(url.hostname)) {
         throw new Error("This tool is limited to Zoho Analytics links.");
       }
@@ -495,6 +544,9 @@
       const orient = orientation.value;
       const margin = marginSize.value;
       const zoom = Number(zoomLevel.value);
+      const height = Number(frameHeight.value);
+
+      document.documentElement.style.setProperty("--print-frame-height", `${height}px`);
 
       if (pageStyleTag) pageStyleTag.remove();
       pageStyleTag = document.createElement("style");
@@ -517,20 +569,22 @@
         reportFrame.src = cleanUrl;
         openBtn.href = cleanUrl;
         loadedUrlLabel.textContent = cleanUrl.replace(/^https:\/\//, "");
-        setStatus("Report loaded. Use Print / Save PDF when the preview finishes loading.");
+        setStatus("Report loaded. Use Print Original / Save PDF for the cleanest output.");
       } catch (error) {
         setStatus(error.message, true);
       }
     }
 
     function applyPreviewHeight() {
-      reportFrame.style.height = `${frameHeight.value}px`;
+      const height = `${frameHeight.value}px`;
+      reportFrame.style.height = height;
+      document.documentElement.style.setProperty("--print-frame-height", height);
     }
 
     async function copyEmbedCode() {
       try {
         const cleanUrl = normalizeUrl(reportUrl.value);
-        const code = `<iframe src="${cleanUrl}" width="100%" height="900" frameborder="0" title="Zoho Analytics report"></iframe>`;
+        const code = `<iframe src="${cleanUrl}" width="100%" height="${frameHeight.value}" frameborder="0" title="Zoho Analytics report"></iframe>`;
         await navigator.clipboard.writeText(code);
         setStatus("Embed code copied.");
       } catch (error) {
@@ -538,11 +592,37 @@
       }
     }
 
-    function printReport() {
+    function printOriginalReport() {
+      try {
+        const cleanUrl = normalizeUrl(reportUrl.value);
+
+        const printWindow = window.open(cleanUrl, "zohoOriginalPrintWindow");
+        if (!printWindow) {
+          setStatus("Popup was blocked. Use Open Original, then press Command+P or Ctrl+P and choose Save as PDF.", true);
+          return;
+        }
+
+        setStatus("Opened the original Zoho report. The print dialog should appear after the report loads. Choose Save as PDF.");
+
+        setTimeout(() => {
+          try {
+            printWindow.focus();
+            printWindow.print();
+          } catch {
+            setStatus("The report opened in a new tab. Press Command+P or Ctrl+P there and choose Save as PDF.");
+          }
+        }, 3500);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function printPreviewArea() {
       try {
         normalizeUrl(reportUrl.value);
+        applyPreviewHeight();
         updatePagePrintStyle();
-        setStatus("Opening print dialog. Choose Save as PDF to export a PDF.");
+        setStatus("Printing the preview area. If anything still clips, use Print Original / Save PDF instead.");
         window.print();
       } catch (error) {
         setStatus(error.message, true);
@@ -550,9 +630,13 @@
     }
 
     loadBtn.addEventListener("click", loadReport);
-    printBtn.addEventListener("click", printReport);
+    printOriginalBtn.addEventListener("click", printOriginalReport);
+    printPreviewBtn.addEventListener("click", printPreviewArea);
     copyBtn.addEventListener("click", copyEmbedCode);
-    frameHeight.addEventListener("change", applyPreviewHeight);
+    frameHeight.addEventListener("change", () => {
+      applyPreviewHeight();
+      updatePagePrintStyle();
+    });
     paperSize.addEventListener("change", updatePagePrintStyle);
     orientation.addEventListener("change", updatePagePrintStyle);
     marginSize.addEventListener("change", updatePagePrintStyle);
@@ -563,7 +647,7 @@
       paperSize.value = "letter";
       orientation.value = "landscape";
       marginSize.value = "0.25in";
-      frameHeight.value = "900";
+      frameHeight.value = "2000";
       zoomLevel.value = "1";
       applyPreviewHeight();
       updatePagePrintStyle();
